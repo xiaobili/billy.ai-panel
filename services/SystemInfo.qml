@@ -56,28 +56,14 @@ Singleton {
             const logoFieldMatch = textOsRelease.match(/^LOGO="?(.+?)"?$/m)
             logo = logoFieldMatch ? logoFieldMatch[1] : ""
 
-            // Update the distroIcon property based on distroId
+            // Update the distroIcon property based on distroId.
+            // Only ids with an icon file in assets/icons resolve; the rest
+            // fall back to the generic linux-symbolic instead of rendering a
+            // broken image.
             switch (distroId) {
                 case "artix":
                 case "arch": distroIcon = "arch-symbolic"; break;
-                case "manjaro": distroIcon = "manjaro-symbolic"; break;
-                case "endeavouros": distroIcon = "endeavouros-symbolic"; break;
-                case "cachyos": distroIcon = "cachyos-symbolic"; break;
-                case "nixos": distroIcon = "nixos-symbolic"; break;
-                case "fedora": distroIcon = "fedora-symbolic"; break;
-                case "linuxmint":
-                case "ubuntu":
-                case "zorin":
-                case "popos": distroIcon = "ubuntu-symbolic"; break;
-                case "debian":
-                case "raspbian":
-                case "kali": distroIcon = "debian-symbolic"; break;
-                case "funtoo":
-                case "gentoo": distroIcon = "gentoo-symbolic"; break;
                 default: distroIcon = "linux-symbolic"; break;
-            }
-            if (textOsRelease.toLowerCase().includes("nyarch")) {
-                distroIcon = "nyarch-symbolic"
             }
 
             if (logo.trim().length === 0) {

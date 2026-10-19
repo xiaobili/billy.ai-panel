@@ -83,7 +83,10 @@ ApiStrategy {
                 message.rawContent += newContent;
                 message.content += newContent;
                 message.functionName = functionName;
-                message.functionCall = functionName; 
+                // Must be the call object (not the name string):
+                // approveCommand reads .args.command from it and request
+                // rebuilds rely on .args/.id.
+                message.functionCall = { name: functionName, args: functionArgs, id: functionId };
                 return { functionCall: { name: functionName, args: functionArgs, id: functionId } };
             }
 
@@ -121,7 +124,7 @@ ApiStrategy {
                 };
             }
 
-            if (`dataJson`.done) {
+            if (dataJson.done) {
                 return { finished: true };
             }
             

@@ -157,7 +157,10 @@ ApiStrategy {
                             const parsedArgs = JSON.parse(slot.args);
                             slot.done = true;
                             message.functionName = slot.name;
-                            message.functionCall = slot.name;
+                            // Must be the call object (not the name string):
+                            // approveCommand reads .args.command from it and
+                            // request rebuilds rely on .args/.id.
+                            message.functionCall = { name: slot.name, args: parsedArgs, id: slot.id };
                             return { functionCall: { name: slot.name, args: parsedArgs, id: slot.id } };
                         } catch (e) {
                             // Arguments not complete yet — keep accumulating

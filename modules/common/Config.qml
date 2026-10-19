@@ -116,15 +116,6 @@ Singleton {
                 property string thumbnailPath: ""
             }
 
-            property JsonObject bar: JsonObject {
-                property int cornerStyle: 0 // 0: Hug | 1: Float | 2: Plain rectangle
-                property bool verbose: true
-            }
-
-            property JsonObject hacks: JsonObject {
-                property int arbitraryRaceConditionDelay: 20 // milliseconds
-            }
-
             property JsonObject interactions: JsonObject {
                 property JsonObject scrolling: JsonObject {
                     property bool fasterTouchpadScroll: false // Enable faster scrolling with touchpad
@@ -142,10 +133,6 @@ Singleton {
                 property string userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
             }
 
-            property JsonObject resources: JsonObject {
-                property int updateInterval: 3000
-            }
-
             property JsonObject search: JsonObject {
                 property string engineBaseUrl: "https://www.google.com/search?q="
                 property list<string> excludedSites: ["quora.com", "facebook.com"]
@@ -160,9 +147,6 @@ Singleton {
             property JsonObject time: JsonObject {
                 // https://doc.qt.io/qt-6/qtime.html#toString
                 property string format: "hh:mm"
-                property string shortDateFormat: "dd/MM"
-                property string dateWithYearFormat: "dd/MM/yyyy"
-                property string dateFormat: "ddd, dd/MM"
                 property bool secondPrecision: false
             }
         }

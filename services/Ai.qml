@@ -59,7 +59,7 @@ Singleton {
 
     function idForMessage(message) {
         // Generate a unique ID using timestamp and random value
-        return Date.now().toString(36) + Math.random().toString(36).substr(2, 8);
+        return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
     }
 
     function safeModelName(modelName) {
@@ -82,6 +82,57 @@ Singleton {
     // Gemini: https://ai.google.dev/gemini-api/docs/function-calling
     // OpenAI: https://platform.openai.com/docs/guides/function-calling
     property string currentTool: Config?.options.ai.tool ?? "search"
+
+    // Tool declarations shared by every OpenAI-compatible format (openai,
+    // mistral) — Mistral's chat API is a superset of this shape.
+    property list<var> openaiCompatToolFunctions: [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_shell_config",
+                "description": "Get the desktop shell config file contents",
+                "parameters": {}
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "set_shell_config",
+                "description": "Set a field in the desktop graphical shell config file. Must only be used after `get_shell_config`.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "key": {
+                            "type": "string",
+                            "description": "The key to set, e.g. `bar.borderless`. MUST NOT BE GUESSED, use `get_shell_config` to see what keys are available before setting.",
+                        },
+                        "value": {
+                            "type": "string",
+                            "description": "The value to set, e.g. `true`"
+                        }
+                    },
+                    "required": ["key", "value"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "run_shell_command",
+                "description": "Run a shell command in bash and get its output. Use this only for quick commands that don't require user interaction. For commands that require interaction, ask the user to run manually instead.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": {
+                            "type": "string",
+                            "description": "The bash command to run",
+                        },
+                    },
+                    "required": ["command"]
+                }
+            },
+        },
+    ]
     property var tools: {
         "gemini": {
             "functions": [{"functionDeclarations": [
@@ -132,111 +183,17 @@ Singleton {
             "none": []
         },
         "openai": {
-            "functions": [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "get_shell_config",
-                        "description": "Get the desktop shell config file contents",
-                        "parameters": {}
-                    },
-                },
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "set_shell_config",
-                        "description": "Set a field in the desktop graphical shell config file. Must only be used after `get_shell_config`.",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "key": {
-                                    "type": "string",
-                                    "description": "The key to set, e.g. `bar.borderless`. MUST NOT BE GUESSED, use `get_shell_config` to see what keys are available before setting.",
-                                },
-                                "value": {
-                                    "type": "string",
-                                    "description": "The value to set, e.g. `true`"
-                                }
-                            },
-                            "required": ["key", "value"]
-                        }
-                    }
-                },
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "run_shell_command",
-                        "description": "Run a shell command in bash and get its output. Use this only for quick commands that don't require user interaction. For commands that require interaction, ask the user to run manually instead.",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "command": {
-                                    "type": "string",
-                                    "description": "The bash command to run",
-                                },
-                            },
-                            "required": ["command"]
-                        }
-                    },
-                },
-            ],
+            "functions": root.openaiCompatToolFunctions,
             "search": [],
             "none": [],
         },
         "mistral": {
-            "functions": [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "get_shell_config",
-                        "description": "Get the desktop shell config file contents",
-                        "parameters": {}
-                    },
-                },
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "set_shell_config",
-                        "description": "Set a field in the desktop graphical shell config file. Must only be used after `get_shell_config`.",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "key": {
-                                    "type": "string",
-                                    "description": "The key to set, e.g. `bar.borderless`. MUST NOT BE GUESSED, use `get_shell_config` to see what keys are available before setting.",
-                                },
-                                "value": {
-                                    "type": "string",
-                                    "description": "The value to set, e.g. `true`"
-                                }
-                            },
-                            "required": ["key", "value"]
-                        }
-                    }
-                },
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "run_shell_command",
-                        "description": "Run a shell command in bash and get its output. Use this only for quick commands that don't require user interaction. For commands that require interaction, ask the user to run manually instead.",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "command": {
-                                    "type": "string",
-                                    "description": "The bash command to run",
-                                },
-                            },
-                            "required": ["command"]
-                        }
-                    },
-                },
-            ],
+            "functions": root.openaiCompatToolFunctions,
             "search": [],
             "none": [],
         }
     }
-    property list<var> availableTools: Object.keys(root.tools[models[currentModelId]?.api_format])
+    property list<var> availableTools: Object.keys(root.tools[models[currentModelId]?.api_format ?? "openai"])
     property var toolDescriptions: {
         "functions": Translation.tr("Commands, edit configs, search.\nTakes an extra turn to switch to search mode if that's needed"),
         "search": Translation.tr("Gives the model search capabilities (immediately)"),
@@ -415,7 +372,6 @@ Singleton {
                 try {
                     if (data.length === 0) return;
                     const dataJson = JSON.parse(data);
-                    root.modelList = [...root.modelList, ...dataJson];
                     dataJson.forEach(model => {
                         const safeModelName = root.safeModelName(model);
                         root.addModel(safeModelName, {
@@ -526,7 +482,7 @@ Singleton {
         root.addMessage(
             Translation.tr('To set an API key, pass it with the %4 command\n\nTo view the key, pass "get" with the command<br/>\n\n### For %1:\n\n**Link**: %2\n\n%3')
                 .arg(model.name).arg(model.key_get_link).arg(model.key_get_description ?? Translation.tr("<i>No further instruction provided</i>")).arg("/key"), 
-            Ai.interfaceRole
+            root.interfaceRole
         );
     }
 
@@ -556,7 +512,7 @@ Singleton {
                 }
             }
         } else {
-            if (feedback) root.addMessage(Translation.tr("Invalid model. Supported: \n```\n") + modelList.join("\n```\n```\n"), Ai.interfaceRole) + "\n```"
+            if (feedback) root.addMessage(Translation.tr("Invalid model. Supported:\n```\n") + modelList.join("\n") + "\n```", root.interfaceRole)
         }
     }
 
@@ -570,19 +526,21 @@ Singleton {
     }
     
     function setTemperature(value) {
-        if (value == NaN || value < 0 || value > 2) {
-            root.addMessage(Translation.tr("Temperature must be between 0 and 2"), Ai.interfaceRole);
+        // isNaN() check: `value == NaN` was always false, so a non-numeric
+        // /temp argument slipped through as NaN and poisoned the state file.
+        if (isNaN(value) || value < 0 || value > 2) {
+            root.addMessage(Translation.tr("Temperature must be between 0 and 2"), root.interfaceRole);
             return;
         }
         Persistent.states.ai.temperature = value;
         root.temperature = value;
-        root.addMessage(Translation.tr("Temperature set to %1").arg(value), Ai.interfaceRole);
+        root.addMessage(Translation.tr("Temperature set to %1").arg(value), root.interfaceRole);
     }
 
     function setApiKey(key) {
         const model = models[currentModelId];
         if (!model.requires_key) {
-            root.addMessage(Translation.tr("%1 does not require an API key").arg(model.name), Ai.interfaceRole);
+            root.addMessage(Translation.tr("%1 does not require an API key").arg(model.name), root.interfaceRole);
             return;
         }
         if (!key || key.length === 0) {
@@ -591,7 +549,7 @@ Singleton {
             return;
         }
         KeyringStorage.setNestedField(["apiKeys", model.key_id], key.trim());
-        root.addMessage(Translation.tr("API key set for %1").arg(model.name), Ai.interfaceRole);
+        root.addMessage(Translation.tr("API key set for %1").arg(model.name), root.interfaceRole);
     }
 
     function printApiKey() {
@@ -600,17 +558,17 @@ Singleton {
             const key = root.apiKeys[model.key_id];
             if (key) {
                 const masked = key.length <= 8 ? "****" : key.slice(0, 4) + "..." + key.slice(-4);
-                root.addMessage(Translation.tr("API key is set (%1)").arg(masked), Ai.interfaceRole);
+                root.addMessage(Translation.tr("API key is set (%1)").arg(masked), root.interfaceRole);
             } else {
-                root.addMessage(Translation.tr("No API key set for %1").arg(model.name), Ai.interfaceRole);
+                root.addMessage(Translation.tr("No API key set for %1").arg(model.name), root.interfaceRole);
             }
         } else {
-            root.addMessage(Translation.tr("%1 does not require an API key").arg(model.name), Ai.interfaceRole);
+            root.addMessage(Translation.tr("%1 does not require an API key").arg(model.name), root.interfaceRole);
         }
     }
 
     function printTemperature() {
-        root.addMessage(Translation.tr("Temperature: %1").arg(root.temperature), Ai.interfaceRole);
+        root.addMessage(Translation.tr("Temperature: %1").arg(root.temperature), root.interfaceRole);
     }
 
     function clearMessages() {
@@ -712,7 +670,7 @@ fi
             /* Build endpoint, request data */
             const endpoint = root.currentApiStrategy.buildEndpoint(model);
             const messageArray = root.messageIDs.map(id => root.messageByID[id]);
-            const filteredMessageArray = messageArray.filter(message => message.role !== Ai.interfaceRole);
+            const filteredMessageArray = messageArray.filter(message => message.role !== root.interfaceRole);
             const data = root.currentApiStrategy.buildRequestData(model, filteredMessageArray, root.systemPrompt, root.temperature, root.tools[model.api_format][root.currentTool], root.pendingFilePath);
             // console.log("[Ai] Request data: ", JSON.stringify(data, null, 2));
 

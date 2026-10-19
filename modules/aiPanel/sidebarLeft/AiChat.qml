@@ -17,7 +17,6 @@ Item {
     property var inputField: messageInputField
     property string commandPrefix: "/"
 
-    property var suggestionQuery: ""
     property var suggestionList: []
 
     onFocusChanged: focus => {
@@ -184,6 +183,28 @@ echo "Hello, $name!"
             }
         },
     ]
+
+    /**
+     * Shared pipeline behind the /model /prompt /save /load /tool
+     * completions: fuzzysort the candidates against the word currently being
+     * typed and map each hit to a suggestion entry. While the command word
+     * is still the only token (no argument started yet), `commandWord` is
+     * prefixed so accepting a suggestion produces a complete command.
+     */
+    function buildFuzzySuggestions(commandWord, candidates, mapHit) {
+        const query = messageInputField.text.split(" ")[1] ?? "";
+        const prefix = messageInputField.text.trim().split(" ").length === 1 ? `${root.commandPrefix}${commandWord} ` : "";
+        const results = Fuzzy.go(query, candidates.map(candidate => {
+            return {
+                name: Fuzzy.prepare(candidate),
+                obj: candidate
+            };
+        }), {
+            all: true,
+            key: "name"
+        });
+        return results.map(hit => mapHit(hit, prefix));
+    }
 
     function handleInput(inputText) {
         if (inputText.trim().toLowerCase() === "/quattro") {
@@ -512,104 +533,44 @@ echo "Hello, $name!"
                         onTextChanged: {
                             // Handle suggestions
                             if (messageInputField.text.length === 0) {
-                                root.suggestionQuery = "";
                                 root.suggestionList = [];
-                                return;
                             } else if (messageInputField.text.startsWith(`${root.commandPrefix}model`)) {
-                                root.suggestionQuery = messageInputField.text.split(" ")[1] ?? "";
-                                const modelResults = Fuzzy.go(root.suggestionQuery, Ai.modelList.map(model => {
-                                    return {
-                                        name: Fuzzy.prepare(model),
-                                        obj: model
-                                    };
-                                }), {
-                                    all: true,
-                                    key: "name"
-                                });
-                                root.suggestionList = modelResults.map(model => {
-                                    return {
-                                        name: `${messageInputField.text.trim().split(" ").length == 1 ? (root.commandPrefix + "model ") : ""}${model.target}`,
-                                        displayName: `${Ai.models[model.target].name}`,
-                                        description: `${Ai.models[model.target].description}`
-                                    };
-                                });
+                                root.suggestionList = root.buildFuzzySuggestions("model", Ai.modelList, (hit, prefix) => ({
+                                    name: `${prefix}${hit.target}`,
+                                    displayName: `${Ai.models[hit.target].name}`,
+                                    description: `${Ai.models[hit.target].description}`
+                                }));
                             } else if (messageInputField.text.startsWith(`${root.commandPrefix}prompt`)) {
-                                root.suggestionQuery = messageInputField.text.split(" ")[1] ?? "";
-                                const promptFileResults = Fuzzy.go(root.suggestionQuery, Ai.promptFiles.map(file => {
-                                    return {
-                                        name: Fuzzy.prepare(file),
-                                        obj: file
-                                    };
-                                }), {
-                                    all: true,
-                                    key: "name"
-                                });
-                                root.suggestionList = promptFileResults.map(file => {
-                                    return {
-                                        name: `${messageInputField.text.trim().split(" ").length == 1 ? (root.commandPrefix + "prompt ") : ""}${file.target}`,
-                                        displayName: `${FileUtils.trimFileExt(FileUtils.fileNameForPath(file.target))}`,
-                                        description: Translation.tr("Load prompt from %1").arg(file.target)
-                                    };
-                                });
+                                root.suggestionList = root.buildFuzzySuggestions("prompt", Ai.promptFiles, (hit, prefix) => ({
+                                    name: `${prefix}${hit.target}`,
+                                    displayName: `${FileUtils.trimFileExt(FileUtils.fileNameForPath(hit.target))}`,
+                                    description: Translation.tr("Load prompt from %1").arg(hit.target)
+                                }));
                             } else if (messageInputField.text.startsWith(`${root.commandPrefix}save`)) {
-                                root.suggestionQuery = messageInputField.text.split(" ")[1] ?? "";
-                                const promptFileResults = Fuzzy.go(root.suggestionQuery, Ai.savedChats.map(file => {
+                                root.suggestionList = root.buildFuzzySuggestions("save", Ai.savedChats, (hit, prefix) => {
+                                    const chatName = FileUtils.trimFileExt(FileUtils.fileNameForPath(hit.target)).trim();
                                     return {
-                                        name: Fuzzy.prepare(file),
-                                        obj: file
-                                    };
-                                }), {
-                                    all: true,
-                                    key: "name"
-                                });
-                                root.suggestionList = promptFileResults.map(file => {
-                                    const chatName = FileUtils.trimFileExt(FileUtils.fileNameForPath(file.target)).trim();
-                                    return {
-                                        name: `${messageInputField.text.trim().split(" ").length == 1 ? (root.commandPrefix + "save ") : ""}${chatName}`,
+                                        name: `${prefix}${chatName}`,
                                         displayName: `${chatName}`,
                                         description: Translation.tr("Save chat to %1").arg(chatName)
                                     };
                                 });
                             } else if (messageInputField.text.startsWith(`${root.commandPrefix}load`)) {
-                                root.suggestionQuery = messageInputField.text.split(" ")[1] ?? "";
-                                const promptFileResults = Fuzzy.go(root.suggestionQuery, Ai.savedChats.map(file => {
+                                root.suggestionList = root.buildFuzzySuggestions("load", Ai.savedChats, (hit, prefix) => {
+                                    const chatName = FileUtils.trimFileExt(FileUtils.fileNameForPath(hit.target)).trim();
                                     return {
-                                        name: Fuzzy.prepare(file),
-                                        obj: file
-                                    };
-                                }), {
-                                    all: true,
-                                    key: "name"
-                                });
-                                root.suggestionList = promptFileResults.map(file => {
-                                    const chatName = FileUtils.trimFileExt(FileUtils.fileNameForPath(file.target)).trim();
-                                    return {
-                                        name: `${messageInputField.text.trim().split(" ").length == 1 ? (root.commandPrefix + "load ") : ""}${chatName}`,
+                                        name: `${prefix}${chatName}`,
                                         displayName: `${chatName}`,
-                                        description: Translation.tr(`Load chat from %1`).arg(file.target)
+                                        description: Translation.tr(`Load chat from %1`).arg(hit.target)
                                     };
                                 });
                             } else if (messageInputField.text.startsWith(`${root.commandPrefix}tool`)) {
-                                root.suggestionQuery = messageInputField.text.split(" ")[1] ?? "";
-                                const toolResults = Fuzzy.go(root.suggestionQuery, Ai.availableTools.map(tool => {
-                                    return {
-                                        name: Fuzzy.prepare(tool),
-                                        obj: tool
-                                    };
-                                }), {
-                                    all: true,
-                                    key: "name"
-                                });
-                                root.suggestionList = toolResults.map(tool => {
-                                    const toolName = tool.target;
-                                    return {
-                                        name: `${messageInputField.text.trim().split(" ").length == 1 ? (root.commandPrefix + "tool ") : ""}${tool.target}`,
-                                        displayName: toolName,
-                                        description: Ai.toolDescriptions[toolName]
-                                    };
-                                });
+                                root.suggestionList = root.buildFuzzySuggestions("tool", Ai.availableTools, (hit, prefix) => ({
+                                    name: `${prefix}${hit.target}`,
+                                    displayName: hit.target,
+                                    description: Ai.toolDescriptions[hit.target]
+                                }));
                             } else if (messageInputField.text.startsWith(root.commandPrefix)) {
-                                root.suggestionQuery = messageInputField.text;
                                 root.suggestionList = root.allCommands.filter(cmd => cmd.name.startsWith(messageInputField.text.substring(1))).map(cmd => {
                                     return {
                                         name: `${root.commandPrefix}${cmd.name}`,
