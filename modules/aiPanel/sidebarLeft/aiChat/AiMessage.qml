@@ -403,6 +403,11 @@ Rectangle {
             }
             Loader { // Growing tail block while streaming (see recomputeBlocks)
                 Layout.fillWidth: true
+                // An inactive Loader keeps the explicit height the layout gave
+                // it while active, which would leave stale blank space below
+                // the message after streaming ends. Excluding it from the
+                // layout once inactive collapses that gap.
+                visible: active
                 active: root.tailBlock !== null
                 sourceComponent: root.tailBlock?.type === "code" ? tailCodeComponent
                     : root.tailBlock?.type === "think" ? tailThinkComponent

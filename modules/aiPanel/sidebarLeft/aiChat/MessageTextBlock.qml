@@ -339,6 +339,10 @@ ColumnLayout {
 
     Loader { // Growing tail paragraph while streaming
         Layout.fillWidth: true
+        // Same as the tail Loader in AiMessage: without this, the layout
+        // keeps reserving the Loader's last explicit height after it is
+        // deactivated, leaving blank space below the finished message.
+        visible: active
         active: root.tailShownBlock !== null
         sourceComponent: TextLine {
             isTail: true
