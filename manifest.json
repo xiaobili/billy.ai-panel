@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.atif-1402.ai-panel",
+  "name": "AI Panel",
+  "version": "0.1.5",
+  "author": "atif-1402",
+  "license": "MIT",
+  "description": "A native AI chat sidebar for Omarchy with multi-provider streaming, markdown rendering, slash commands, local chat storage, prompt presets, file attachments, and theme-aware styling.",
+  "kinds": ["panel"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "panel": "Panel.qml"
+  }
+}
