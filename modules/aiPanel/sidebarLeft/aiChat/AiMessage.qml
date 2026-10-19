@@ -20,37 +20,77 @@ Rectangle {
     property bool renderMarkdown: true
     property bool editing: false
 
-    // Initial value: parsed from current content when the delegate is
-    // created or re-entered after editing.  During streaming the
-    // Connections block below keeps this up-to-date via Qt.callLater so
-    // the expensive splitMarkdownBlocks regex runs at most once per
-    // event-loop frame instead of on every SSE delta (eliminates the
-    // O(n²) rendering cost for large responses).
-    property list<var> messageBlocks: root.messageData?.content
-        ? StringUtils.splitMarkdownBlocks(root.messageData.content)
-        : []
+    // --- Streaming render pipeline (performance) ---
+    // SSE deltas append to messageData.content. Re-splitting the full
+    // markdown and rebuilding every block delegate on each delta is O(n)
+    // work at frame rate; on long responses this saturates the shell
+    // process and stalls the whole desktop. Two mitigations:
+    // 1. Throttle: re-split at most every 150ms while streaming, and
+    //    immediately when the message completes or messageData changes.
+    // 2. Stable/tail split: while streaming only the LAST block ever
+    //    changes, so `stableBlocks` (the Repeater model) is reassigned
+    //    only when a new block boundary appears — existing delegates are
+    //    not torn down per tick. The growing tail block is rendered by a
+    //    dedicated Loader below the Repeater; for a same-type tail the
+    //    Loader keeps its item alive and bindings update in place.
+    property list<var> stableBlocks: []
+    property var tailBlock: null
+    readonly property int blockCount: stableBlocks.length + (tailBlock !== null ? 1 : 0)
+    // Evaluated once per tick on the root instead of per delegate: every
+    // text delegate used to re-run content.includes("```") on each delta.
+    readonly property bool messageHasFence: root.messageData?.content?.includes("```") ?? false
 
-    anchors.left: parent?.left
-    anchors.right: parent?.right
-    implicitHeight: columnLayout.implicitHeight + root.messagePadding * 2
+    function recomputeBlocks(final) {
+        if (!root.messageData) return;
+        const blocks = root.messageData.content ? StringUtils.splitMarkdownBlocks(root.messageData.content) : [];
+        const nextTail = final ? null : (blocks.length > 0 ? blocks[blocks.length - 1] : null);
+        const nextStable = final ? blocks : (blocks.length > 1 ? blocks.slice(0, blocks.length - 1) : []);
+        // Reassign the model only when the stable section actually changed,
+        // otherwise ScriptModel resets and rebuilds every delegate per tick.
+        if (final || nextStable.length !== root.stableBlocks.length) root.stableBlocks = nextStable;
+        root.tailBlock = nextTail;
+    }
 
-    // Debounced content → block-split pipeline.  Replaces the former
-    // declarative binding which re-ran the full regex scan of the entire
-    // accumulated response on every streaming delta.  Qt.callLater
-    // coalesces rapid property-change notifications so the parse runs at
-    // most once per event-loop frame (~16 ms).
+    Timer {
+        id: blockRenderThrottle
+        interval: 150
+        onTriggered: root.recomputeBlocks(false)
+    }
+
+    Component.onCompleted: root.recomputeBlocks(true)
+    onMessageDataChanged: root.recomputeBlocks(true)
+
+    // Throttle (NOT debounce): restart() alone would keep postponing the
+    // render while deltas arrive continuously. Schedule a fire only when
+    // none is pending, so re-splits run at most every 150ms regardless of
+    // delta rate, and the pending fire always lands.
+    function requestBlockRender() {
+        if (blockRenderThrottle.running) return;
+        blockRenderThrottle.restart();
+    }
+
     Connections {
         target: root.messageData
         enabled: root.messageData !== null
         function onContentChanged() {
+            if (!root.messageData || root.editing) return;
+            if (root.messageData.done) root.recomputeBlocks(true);
+            else root.requestBlockRender();
+        }
+        function onDoneChanged() {
             if (!root.messageData) return;
-            Qt.callLater(function() {
-                if (!root.messageData) return;
-                if (root.editing) return;
-                root.messageBlocks = StringUtils.splitMarkdownBlocks(root.messageData.content);
-            });
+            if (root.messageData.done) {
+                blockRenderThrottle.stop();
+                root.recomputeBlocks(true);
+            } else {
+                root.requestBlockRender();
+            }
         }
     }
+
+    anchors.left: parent?.left
+    anchors.right: parent?.right
+    implicitHeight: columnLayout.implicitHeight + root.messagePadding * 2
 
     radius: Appearance.rounding.normal
     color: Appearance.colors.colLayer2
@@ -300,7 +340,7 @@ Rectangle {
                     id: loadingIndicatorLoader
                     anchors.left: parent.left
                     anchors.leftMargin: 4
-                    shown: (root.messageBlocks.length < 1) && !(root.messageData && root.messageData.done)
+                    shown: (root.blockCount < 1) && !(root.messageData && root.messageData.done)
                     sourceComponent: RowLayout {
                         spacing: 8
                         StyledText {
@@ -327,7 +367,7 @@ Rectangle {
             }
             Repeater {
                 model: ScriptModel {
-                    values: root.messageBlocks
+                    values: root.stableBlocks
                 }
                 delegate: DelegateChooser {
                     id: messageDelegate
@@ -357,8 +397,50 @@ Rectangle {
                         segmentContent: modelData.content
                         messageData: root.messageData
                         done: root.messageData?.done ?? false
-                        forceDisableChunkSplitting: root.messageData?.content.includes("```") ?? true
+                        forceDisableChunkSplitting: root.messageHasFence
                     } }
+                }
+            }
+            Loader { // Growing tail block while streaming (see recomputeBlocks)
+                Layout.fillWidth: true
+                active: root.tailBlock !== null
+                sourceComponent: root.tailBlock?.type === "code" ? tailCodeComponent
+                    : root.tailBlock?.type === "think" ? tailThinkComponent
+                    : tailTextComponent
+            }
+            Component {
+                id: tailTextComponent
+                MessageTextBlock {
+                    editing: root.editing
+                    renderMarkdown: root.renderMarkdown
+                    enableMouseSelection: root.enableMouseSelection
+                    segmentContent: root.tailBlock?.content ?? ""
+                    messageData: root.messageData
+                    done: root.messageData?.done ?? false
+                    forceDisableChunkSplitting: root.messageHasFence
+                }
+            }
+            Component {
+                id: tailCodeComponent
+                MessageCodeBlock {
+                    editing: root.editing
+                    renderMarkdown: root.renderMarkdown
+                    enableMouseSelection: root.enableMouseSelection
+                    segmentContent: root.tailBlock?.content ?? ""
+                    segmentLang: root.tailBlock?.lang ?? ""
+                    messageData: root.messageData
+                }
+            }
+            Component {
+                id: tailThinkComponent
+                MessageThinkBlock {
+                    editing: root.editing
+                    renderMarkdown: root.renderMarkdown
+                    enableMouseSelection: root.enableMouseSelection
+                    segmentContent: root.tailBlock?.content ?? ""
+                    messageData: root.messageData
+                    done: root.messageData?.done ?? false
+                    completed: root.tailBlock?.completed ?? false
                 }
             }
         }

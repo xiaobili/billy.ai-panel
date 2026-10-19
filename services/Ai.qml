@@ -91,7 +91,13 @@ Singleton {
             "function": {
                 "name": "get_shell_config",
                 "description": "Get the desktop shell config file contents",
-                "parameters": {}
+                // Strict OpenAI-compatible providers (e.g. DeepSeek) reject an
+                // empty parameters object as `type: null` — it must be an
+                // explicit object schema.
+                "parameters": {
+                    "type": "object",
+                    "properties": {}
+                }
             },
         },
         {

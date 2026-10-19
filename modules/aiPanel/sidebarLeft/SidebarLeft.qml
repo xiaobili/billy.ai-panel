@@ -1,5 +1,4 @@
 import "../../.."
-import "../../../services"
 import "../../common"
 import "../../common/widgets"
 import QtQuick
@@ -81,10 +80,33 @@ Scope { // Scope
         sourceComponent: PanelWindow { // Window
             id: panelWindow
             visible: GlobalStates.sidebarLeftOpen
-            
+
+            // Modal (unpinned) mode follows the official Omarchy panel pattern
+            // (menu/clipboard/emojis/reminders): a full-screen layer surface
+            // holding WlrKeyboardFocus.Exclusive, with a click-catcher behind
+            // the content for outside-click dismissal.
+            //
+            // Why Exclusive: with OnDemand, Hyprland's focus-follows-mouse
+            // hands the keyboard back to whatever toplevel the cursor hovers
+            // (foot/kitty), so IME commits (typing Chinese while the mouse
+            // rests on a terminal) land in the terminal instead of the panel.
+            // Exclusive keeps keyboard + IME focus inside the panel until it
+            // closes.
+            //
+            // Why the click-catcher replaces HyprlandFocusGrab dismissal:
+            // Hyprland 0.49+ refuses to move keyboard focus away from an
+            // exclusive layer surface, so a focus grab around the panel can
+            // never clear on outside clicks. Official panels therefore catch
+            // the click on their own full-screen surface instead.
+            //
+            // Docked (pinned) mode keeps OnDemand + pass-through input, since
+            // a docked panel must let the user click into and type in the
+            // terminal tiled beside it.
+            readonly property bool modal: GlobalStates.sidebarLeftOpen && !root.pin
+
             property bool extend: false
             property real sidebarWidth: panelWindow.extend ? Appearance.sizes.sidebarWidthExtended : Appearance.sizes.sidebarWidth
-            property var contentParent: sidebarLeftBackground
+            property var contentParent: sidebarContentHolder
 
             function hide() {
                 GlobalStates.sidebarLeftOpen = false
@@ -94,32 +116,39 @@ Scope { // Scope
             exclusiveZone: root.pin ? sidebarWidth : 0
             implicitWidth: Appearance.sizes.sidebarWidthExtended + Appearance.sizes.elevationMargin
             WlrLayershell.namespace: "quickshell:sidebarLeft"
-            // Hyprland 0.49: OnDemand is Exclusive, Exclusive just breaks click-outside-to-close
-            WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+            WlrLayershell.keyboardFocus: panelWindow.modal
+                ? WlrKeyboardFocus.Exclusive
+                : WlrKeyboardFocus.OnDemand
             color: "transparent"
 
             anchors {
                 top: true
                 left: true
                 bottom: true
+                right: panelWindow.modal
             }
 
-            mask: Region {
+            // Input region: modal mode must receive clicks on the whole window
+            // (the click-catcher below); docked mode limits input to the panel
+            // rectangle so clicks pass through to surrounding surfaces.
+            mask: panelWindow.modal ? fullWindowMask : sidebarMask
+            Region {
+                id: fullWindowMask
+                // Region is not an Item: no anchors — bind geometry directly.
+                width: panelWindow.width
+                height: panelWindow.height
+            }
+            Region {
+                id: sidebarMask
                 item: sidebarLeftBackground
             }
 
-            onVisibleChanged: {
-                if (visible) {
-                    GlobalFocusGrab.addDismissable(panelWindow);
-                } else {
-                    GlobalFocusGrab.removeDismissable(panelWindow);
-                }
-            }
-            Connections {
-                target: GlobalFocusGrab
-                function onDismissed() {
-                    panelWindow.hide();
-                }
+            // Click-catcher: closes the panel on outside click (modal mode).
+            // Declared first so every sidebar item sits above it.
+            MouseArea {
+                anchors.fill: parent
+                enabled: panelWindow.modal
+                onClicked: panelWindow.hide()
             }
 
             // Content
@@ -139,6 +168,20 @@ Scope { // Scope
                 border.width: 1
                 border.color: Appearance.colors.colLayer0Border
                 radius: Math.max(0, Appearance.rounding.screenRounding - Appearance.sizes.hyprlandGapsOut + 1)
+
+                // Swallows clicks on the panel's own padding so they don't
+                // fall through to the click-catcher. Declared before the
+                // content holder, so injected content stays on top of it.
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: (event) => event.accepted = true
+                }
+
+                // Injected sidebar content lands here (see injectSidebarContent).
+                Item {
+                    id: sidebarContentHolder
+                    anchors.fill: parent
+                }
 
                 Behavior on width {
                     animation: Appearance.animation.elementMove.numberAnimation.createObject(this)

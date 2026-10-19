@@ -199,129 +199,150 @@ ColumnLayout {
         return out;
     }
 
-    property list<string> shownTextBlocks: root.fadeChunkSplitting ? root.shownText.split(/\n\n(?= {0,2})|\n(?= {0,2}[-\*])/g).filter(line => line.trim() !== "") : [root.shownText]
+    // --- Streaming paragraph pipeline (performance) ---
+    // The former `shownTextBlocks` binding re-split the whole block and
+    // reset the paragraph Repeater on every segment change — O(paragraphs)
+    // teardown per streaming tick, quadratic over a full response. While
+    // streaming only the LAST paragraph ever changes: stable paragraphs
+    // live in `stableShownBlocks` (the Repeater model, reassigned only
+    // when a paragraph boundary appears) and the growing tail paragraph
+    // is a dedicated TextLine below the Repeater.
+    property list<string> stableShownBlocks: []
+    property var tailShownBlock: null // string while streaming, null when done/editing/empty
     property bool fadeChunkSplitting: !forceDisableChunkSplitting && !editing && !/\n\|/.test(shownText) && Config.options.sidebar.ai.textFadeIn
 
     Layout.fillWidth: true
 
-    onEditingChanged: {
-        if (editing) {
-            // console.log("Editing mode enabled", segmentContent)
-            root.shownText = segmentContent
-        } else if (segmentContent) {
-            root.shownText = root.sanitizeForDisplay(segmentContent)
+    function updateShownBlocks() {
+        if (root.editing) {
+            // Raw single editable area while editing (no sanitize).
+            root.shownText = root.segmentContent ?? "";
+            root.stableShownBlocks = root.shownText !== "" ? [root.shownText] : [];
+            root.tailShownBlock = null;
+            return;
         }
+        root.shownText = segmentContent ? root.sanitizeForDisplay(segmentContent) : "";
+        const blocks = root.fadeChunkSplitting
+            ? root.shownText.split(/\n\n(?= {0,2})|\n(?= {0,2}[-\*])/g).filter(line => line.trim() !== "")
+            : (root.shownText !== "" ? [root.shownText] : []);
+        if (root.messageDone) {
+            root.stableShownBlocks = blocks;
+            root.tailShownBlock = null;
+            return;
+        }
+        const nextStable = blocks.length > 1 ? blocks.slice(0, blocks.length - 1) : [];
+        // Reassign only when a paragraph boundary appeared, so the Repeater
+        // is not reset (all paragraphs recreated) on every streaming tick.
+        if (nextStable.length !== root.stableShownBlocks.length) root.stableShownBlocks = nextStable;
+        root.tailShownBlock = blocks.length > 0 ? blocks[blocks.length - 1] : null;
     }
 
-    onSegmentContentChanged: {
-        // console.log("Segment content changed: " + segmentContent);
-        if (!root.editing && segmentContent) {
-            root.shownText = root.sanitizeForDisplay(segmentContent);
-        }
-    }
+    onSegmentContentChanged: updateShownBlocks()
+    onMessageDoneChanged: updateShownBlocks()
+    onEditingChanged: updateShownBlocks()
+    onFadeChunkSplittingChanged: updateShownBlocks()
+    Component.onCompleted: updateShownBlocks()
 
     spacing: 0
-    Repeater {
-        id: textLinesRepeater
-        property list<real> textLineOpacities: []
-        model: root.shownTextBlocks
-        onModelChanged: {
-            while (textLinesRepeater.textLineOpacities.length < root.shownTextBlocks.length) {
-                textLinesRepeater.textLineOpacities.push(root.messageDone ? 1 : 0);
+
+    // Shared paragraph renderer. Stable paragraphs come from the Repeater
+    // below; the growing tail paragraph (isTail) is instantiated once by
+    // the Loader and updated in place via bindings — no per-tick teardown.
+    component TextLine: TextArea {
+        id: textArea
+        property string lineText: ""
+        property bool isTail: false
+        // Streaming: a line fades in once it stops being the tail; lines
+        // created on an already-completed message are visible at once.
+        property bool fadeStarted: root.messageDone
+
+        visible: opacity > 0
+        opacity: root.fadeChunkSplitting
+            ? (isTail ? (root.messageDone ? 1 : 0) : (fadeStarted ? 1 : 0))
+            : 1
+        Component.onCompleted: {
+            if (!isTail && !root.messageDone) Qt.callLater(() => fadeStarted = true)
+        }
+        Behavior on opacity {
+            animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
+        }
+
+        Layout.fillWidth: true
+        readOnly: !editing
+        selectByMouse: enableMouseSelection || editing
+        renderType: Text.NativeRendering
+        font.family: Appearance.font.family.reading
+        font.hintingPreference: Font.PreferNoHinting // Prevent weird bold text
+        font.pixelSize: Appearance.font.pixelSize.small
+        selectedTextColor: Appearance.m3colors.m3onSecondaryContainer
+        selectionColor: Appearance.colors.colSecondaryContainer
+        wrapMode: TextEdit.Wrap
+        color: root.messageData?.thinking ? Appearance.colors.colSubtext : Appearance.colors.colOnLayer1
+        textFormat: renderMarkdown ? TextEdit.MarkdownText : TextEdit.PlainText
+        text: lineText
+        background: null
+
+        property bool _underlineApplied: false
+
+        function applyLinkUnderline() {
+            if (_underlineApplied) return
+            _underlineApplied = true
+            Qt.callLater(function() {
+                try {
+                    var tdoc = textArea.textDocument
+                    if (!tdoc) return
+                    var doc = tdoc.textDocument !== undefined ? tdoc.textDocument : tdoc.document
+                    if (!doc) return
+                    var col = Appearance.colors.colPrimary
+                    var html = doc.html !== undefined ? String(doc.html) : (doc.toHtml ? doc.toHtml() : "")
+                    if (html.length === 0 || html.indexOf('underline') !== -1) return
+                    html = html.replace(/<a\s/g, '<a style="text-decoration:underline;color:' + col + ';" ')
+                    if (doc.setHtml) doc.setHtml(html)
+                    else doc.html = html
+                } catch (e) { console.log("Link error:", e) }
+            })
+        }
+
+        Connections {
+            target: root
+            function onMessageDoneChanged() {
+                if (root.messageDone) textArea.applyLinkUnderline()
             }
         }
-        delegate: TextArea {
-            id: textArea
-            required property int index
+
+        onTextChanged: {
+            if (!root.editing) return
+            segmentContent = text
+        }
+
+        onLinkActivated: (link) => {
+            Qt.openUrlExternally(link)
+            GlobalStates.sidebarLeftOpen = false
+        }
+
+        MouseArea { // Pointing hand for links
+            anchors.fill: parent
+            acceptedButtons: Qt.NoButton // Only for hover
+            hoverEnabled: true
+            cursorShape: parent.hoveredLink !== "" ? Qt.PointingHandCursor :
+                (enableMouseSelection || editing) ? Qt.IBeamCursor : Qt.ArrowCursor
+        }
+    }
+
+    Repeater {
+        model: root.stableShownBlocks
+        delegate: TextLine {
             required property string modelData
+            lineText: modelData
+        }
+    }
 
-            // Fade in animation
-            visible: opacity > 0
-            opacity: fadeChunkSplitting ? (textLinesRepeater.textLineOpacities[index] ?? (root.messageDone ? 1 : 0)) : 1
-            onVisibleChanged: {
-                if (root.messageDone) textLinesRepeater.textLineOpacities[textArea.index] = 1
-            }
-            Connections {
-                target: root
-                function onMessageDoneChanged() {
-                    if (root.messageDone) textLinesRepeater.textLineOpacities[textArea.index] = 1
-                }
-                function onShownTextBlocksChanged() {
-                    if (root.shownTextBlocks.length > textArea.index + 1)
-                        textLinesRepeater.textLineOpacities[textArea.index] = 1
-                }
-            }
-            Behavior on opacity {
-                animation: Appearance.animation.elementMoveFast.numberAnimation.createObject(this)
-            }
-
-            Layout.fillWidth: true
-            readOnly: !editing
-            selectByMouse: enableMouseSelection || editing
-            renderType: Text.NativeRendering
-            font.family: Appearance.font.family.reading
-            font.hintingPreference: Font.PreferNoHinting // Prevent weird bold text
-            font.pixelSize: Appearance.font.pixelSize.small
-            selectedTextColor: Appearance.m3colors.m3onSecondaryContainer
-            selectionColor: Appearance.colors.colSecondaryContainer
-            wrapMode: TextEdit.Wrap
-            color: root.messageData?.thinking ? Appearance.colors.colSubtext : Appearance.colors.colOnLayer1
-            textFormat: renderMarkdown ? TextEdit.MarkdownText : TextEdit.PlainText
-            text: modelData
-            background: null
-
-            property bool _underlineApplied: false
-
-            function applyLinkUnderline() {
-                if (_underlineApplied) return
-                _underlineApplied = true
-                Qt.callLater(function() {
-                    try {
-                        var tdoc = textArea.textDocument
-                        if (!tdoc) return
-                        var doc = tdoc.textDocument !== undefined ? tdoc.textDocument : tdoc.document
-                        if (!doc) return
-                        var col = Appearance.colors.colPrimary
-                        var html = doc.html !== undefined ? String(doc.html) : (doc.toHtml ? doc.toHtml() : "")
-                        if (html.length === 0 || html.indexOf('underline') !== -1) return
-                        html = html.replace(/<a\s/g, '<a style="text-decoration:underline;color:' + col + ';" ')
-                        if (doc.setHtml) doc.setHtml(html)
-                        else doc.html = html
-                    } catch (e) { console.log("Link error:", e) }
-                })
-            }
-
-            Connections {
-                target: root
-                function onMessageDoneChanged() {
-                    if (root.messageDone) textArea.applyLinkUnderline()
-                }
-            }
-
-            onTextChanged: {
-                if (!root.editing) return
-                segmentContent = text
-            }
-
-            onLinkActivated: (link) => {
-                Qt.openUrlExternally(link)
-                GlobalStates.sidebarLeftOpen = false
-            }
-
-            MouseArea { // Pointing hand for links
-                anchors.fill: parent
-                acceptedButtons: Qt.NoButton // Only for hover
-                hoverEnabled: true
-                cursorShape: parent.hoveredLink !== "" ? Qt.PointingHandCursor : 
-                    (enableMouseSelection || editing) ? Qt.IBeamCursor : Qt.ArrowCursor
-            }
-
-            // Rectangle {
-            //     anchors.fill: parent
-            //     color: "#22786378"
-            //     border.width: 1
-            //     border.color: "#7E7E7E"
-            // }
+    Loader { // Growing tail paragraph while streaming
+        Layout.fillWidth: true
+        active: root.tailShownBlock !== null
+        sourceComponent: TextLine {
+            isTail: true
+            lineText: root.tailShownBlock ?? ""
         }
     }
 }
