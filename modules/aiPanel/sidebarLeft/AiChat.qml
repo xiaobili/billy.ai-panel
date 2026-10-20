@@ -352,6 +352,12 @@ echo "Hello, $name!"
                         statusText: Ai.temperature.toFixed(1)
                         description: Translation.tr("Temperature\nChange with /temp VALUE")
                     }
+                    StatusSeparator {}
+                    StatusItem {
+                        icon: "neurology"
+                        statusText: Ai.deepThinking === "disable" ? Translation.tr("off") : Ai.deepThinking
+                        description: Translation.tr("Deep thinking: %1\nChange with /think low|high|max|disable").arg(Ai.deepThinkingDescriptions[Ai.deepThinking])
+                    }
                     StatusSeparator {
                         visible: Ai.tokenCount.total > 0
                     }
@@ -416,7 +422,7 @@ echo "Hello, $name!"
                 shown: Ai.messageIDs.length === 0
                 icon: "neurology"
                 title: Translation.tr("Large language models")
-                description: Translation.tr("Type /key to get started with online models\nCtrl+O to expand sidebar\nCtrl+P to pin sidebar")
+                description: Translation.tr("Type /key to get started with online models\nSuper+Alt+A to expand sidebar")
             }
 
             ScrollToBottomButton {
