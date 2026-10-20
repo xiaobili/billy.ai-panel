@@ -13,6 +13,10 @@ import QtQuick;
  * - key_get_description: Description of pricing and how to get an API key
  * - api_format: The API format of the model. Can be "openai" or "gemini". Default is "openai".
  * - extraParams: Extra parameters to be passed to the model. This is a JSON object.
+ * - thinking_params: Deep thinking request parameters keyed by /think level
+ *   ("low" | "high" | "max" | "disable"). Each value is an object deep-merged
+ *   into the request body for that level. Models without a mapping never get
+ *   thinking parameters, so providers that don't support thinking are safe.
  */
 
 QtObject {
@@ -30,4 +34,13 @@ QtObject {
     property bool supports_image_input: false
     property var tools
     property var extraParams: ({})
+    property var thinking_params
+
+    /**
+     * Request parameter object for a deep thinking level, or undefined when
+     * the model has no mapping for it (no thinking parameters are sent then).
+     */
+    function thinkingParamsFor(level: string): var {
+        return thinking_params?.[level];
+    }
 }

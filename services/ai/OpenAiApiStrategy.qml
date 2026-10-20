@@ -60,7 +60,13 @@ ApiStrategy {
                 }
             }
         }
-        return model.extraParams ? Object.assign({}, baseData, model.extraParams) : baseData;
+        // Deep thinking params for the active level (model-mapped, may be
+        // undefined), deep-merged after base but before extraParams so
+        // explicit user config always wins. Deep merge so nested objects
+        // don't wholesale replace base values.
+        const thinkingParams = model.thinkingParamsFor(root.thinkingLevel);
+        const data = thinkingParams ? CF.ObjectUtils.deepMerge(baseData, thinkingParams) : baseData;
+        return model.extraParams ? Object.assign({}, data, model.extraParams) : data;
     }
 
     function buildScriptFileSetup(filePath: string): string {
@@ -181,7 +187,11 @@ ApiStrategy {
                     message.rawContent += endBlock;
                 }
                 newContent = responseContent;
-            } else if (responseReasoning && responseReasoning.length > 0) {
+            // Reasoning deltas are dropped entirely when deep thinking is
+            // disabled (some models can't turn thinking off server-side, so
+            // the level only minimizes it — the UI must not show a think
+            // block then).
+            } else if (responseReasoning && responseReasoning.length > 0 && root.thinkingLevel !== "disable") {
                 if (!isReasoning) {
                     isReasoning = true;
                     const startBlock = "\n\n<think>\n\n";

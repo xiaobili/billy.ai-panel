@@ -139,6 +139,17 @@ Item {
             }
         },
         {
+            name: "think",
+            description: Translation.tr("Set deep thinking level (low, high, max, disable)."),
+            execute: args => {
+                if (args.length == 0 || args[0] == "get") {
+                    Ai.printDeepThinking();
+                } else {
+                    Ai.setDeepThinking(args[0]);
+                }
+            }
+        },
+        {
             name: "test",
             description: Translation.tr("Markdown test"),
             execute: () => {
@@ -569,6 +580,12 @@ echo "Hello, $name!"
                                     name: `${prefix}${hit.target}`,
                                     displayName: hit.target,
                                     description: Ai.toolDescriptions[hit.target]
+                                }));
+                            } else if (messageInputField.text.startsWith(`${root.commandPrefix}think`)) {
+                                root.suggestionList = root.buildFuzzySuggestions("think", Ai.deepThinkingLevels, (hit, prefix) => ({
+                                    name: `${prefix}${hit.target}`,
+                                    displayName: hit.target,
+                                    description: Ai.deepThinkingDescriptions[hit.target]
                                 }));
                             } else if (messageInputField.text.startsWith(root.commandPrefix)) {
                                 root.suggestionList = root.allCommands.filter(cmd => cmd.name.startsWith(messageInputField.text.substring(1))).map(cmd => {

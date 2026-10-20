@@ -10,6 +10,10 @@ ApiStrategy {
     readonly property string fileUriSubstitutionString: "{{ fileUriVarName }}"
     readonly property string fileMimeTypeSubstitutionString: "{{ fileMimeTypeVarName }}"
     property string buffer: ""
+    // Thought-part state for <think> block wrapping. Gemini streams
+    // reasoning as parts flagged `thought: true`; see parseBuffer().
+    // reset() clears it between requests.
+    property bool isThought: false
     
     function buildEndpoint(model: AiModel): string {
         // The endpoint is interpolated into a double-quoted bash string, so
@@ -93,7 +97,14 @@ ApiStrategy {
             },
         };
         // print("Gemini API call payload:", JSON.stringify(baseData, null, 2));
-        return model.extraParams ? Object.assign({}, baseData, model.extraParams) : baseData;
+        // Deep thinking params for the active level (model-mapped, may be
+        // undefined), deep-merged after base but before extraParams so
+        // explicit user config always wins. Deep merge is required here:
+        // thinkingConfig lives inside generationConfig, and a shallow assign
+        // would replace it (dropping the base temperature).
+        const thinkingParams = model.thinkingParamsFor(root.thinkingLevel);
+        const data = thinkingParams ? CF.ObjectUtils.deepMerge(baseData, thinkingParams) : baseData;
+        return model.extraParams ? Object.assign({}, data, model.extraParams) : data;
     }
 
     function buildAuthorizationHeader(apiKeyEnvVarName: string): string {
@@ -184,10 +195,32 @@ ApiStrategy {
                 };
             }
 
-            // Normal text response
-            const responseContent = dataJson.candidates[0]?.content?.parts[0]?.text
-            message.rawContent += responseContent;
-            message.content += responseContent;
+            // Text parts: thought parts (flagged `thought: true`) become
+            // <think> blocks, matching the OpenAI-format reasoning
+            // rendering; a regular part closes an open block. Thought deltas
+            // are dropped entirely when deep thinking is disabled (covers
+            // providers that can't turn thinking off server-side).
+            const parts = dataJson.candidates[0]?.content?.parts ?? [];
+            for (let p = 0; p < parts.length; p++) {
+                const partText = parts[p]?.text;
+                if (!partText || partText.length === 0) continue;
+                if (parts[p].thought === true) {
+                    if (root.thinkingLevel === "disable") continue;
+                    if (!root.isThought) {
+                        root.isThought = true;
+                        const startBlock = "\n\n<think>\n\n";
+                        message.rawContent += startBlock;
+                        message.content += startBlock;
+                    }
+                } else if (root.isThought) {
+                    root.isThought = false;
+                    const endBlock = "\n\n</think>\n\n";
+                    message.rawContent += endBlock;
+                    message.content += endBlock;
+                }
+                message.rawContent += partText;
+                message.content += partText;
+            }
             
             // Handle annotations and metadata
             const annotationSources = dataJson.candidates[0]?.groundingMetadata?.groundingChunks?.map(chunk => {
@@ -240,6 +273,7 @@ ApiStrategy {
     
     function reset() {
         buffer = "";
+        isThought = false;
     }
 
     function buildScriptFileSetup(filePath) {

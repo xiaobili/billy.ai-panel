@@ -95,4 +95,27 @@ Singleton {
             }
         }
     }
+
+    /**
+     * Recursively merge `source` into `target`, returning a new object.
+     * Plain objects merge key-by-key; arrays and scalars are replaced by the
+     * source value. Neither input is mutated. `source` undefined returns
+     * `target` unchanged.
+     *
+     * Used to layer request body overrides (deep thinking params) on top of
+     * base request data without losing nested base fields — a shallow assign
+     * would replace whole subtrees like Gemini's generationConfig and drop
+     * its temperature.
+     */
+    function deepMerge(target, source) {
+        if (source === undefined) return target;
+        const isPlainObject = value =>
+            value !== null && typeof value === "object" && !Array.isArray(value);
+        if (!isPlainObject(target) || !isPlainObject(source)) return source;
+        const result = Object.assign({}, target);
+        for (const key in source) {
+            result[key] = deepMerge(result[key], source[key]);
+        }
+        return result;
+    }
 }

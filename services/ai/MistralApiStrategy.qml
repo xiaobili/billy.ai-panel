@@ -36,7 +36,12 @@ ApiStrategy {
             "tools": tools,
         };
         // console.log("[AI] Request data: ", JSON.stringify(baseData, null, 2));
-        return model.extraParams ? Object.assign({}, baseData, model.extraParams) : baseData;
+        // Deep thinking params for the active level (model-mapped, may be
+        // undefined), deep-merged after base but before extraParams so
+        // explicit user config always wins.
+        const thinkingParams = model.thinkingParamsFor(root.thinkingLevel);
+        const data = thinkingParams ? CF.ObjectUtils.deepMerge(baseData, thinkingParams) : baseData;
+        return model.extraParams ? Object.assign({}, data, model.extraParams) : data;
     }
 
     function buildAuthorizationHeader(apiKeyEnvVarName: string): string {
@@ -99,7 +104,9 @@ ApiStrategy {
                     message.rawContent += endBlock;
                 }
                 newContent = responseContent;
-            } else if (responseReasoning && responseReasoning.length > 0) {
+            // Reasoning deltas are dropped entirely when deep thinking is
+            // disabled (matches OpenAiApiStrategy).
+            } else if (responseReasoning && responseReasoning.length > 0 && root.thinkingLevel !== "disable") {
                 if (!isReasoning) {
                     isReasoning = true;
                     const startBlock = "\n\n<think>\n\n";

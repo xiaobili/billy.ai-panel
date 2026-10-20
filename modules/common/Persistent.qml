@@ -59,6 +59,10 @@ Singleton {
                 // a real model instead of falling back to the list head.
                 property string model: "gemini-3.6-flash"
                 property real temperature: 0.5
+                // Deep thinking level for the /think command ("low" | "high" |
+                // "max" | "disable"). Default keeps the pre-feature request
+                // shape: no thinking parameters are sent.
+                property string deepThinking: "disable"
             }
         }
     }

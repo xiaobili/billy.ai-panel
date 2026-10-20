@@ -51,6 +51,17 @@ Singleton {
     }
     property var postResponseHook
     property real temperature: Persistent.states?.ai?.temperature ?? 0.5
+    // Deep thinking levels accepted by the /think command. "disable" is the
+    // default and sends no thinking parameters at all, preserving the
+    // pre-feature request shape.
+    readonly property var deepThinkingLevels: ["low", "high", "max", "disable"]
+    property string deepThinking: root.deepThinkingLevels.includes(Persistent.states?.ai?.deepThinking) ? Persistent.states.ai.deepThinking : "disable"
+    readonly property var deepThinkingDescriptions: ({
+        "low": Translation.tr("Minimal reasoning"),
+        "high": Translation.tr("High reasoning effort"),
+        "max": Translation.tr("Maximum dynamic reasoning budget"),
+        "disable": Translation.tr("No deep thinking"),
+    })
     property QtObject tokenCount: QtObject {
         property int input: -1
         property int output: -1
@@ -232,6 +243,16 @@ Singleton {
             "key_get_description": Translation.tr("**Pricing**: free. Data used for training.\n\n**Instructions**: Log into Google account, allow AI Studio to create Google Cloud project or whatever it asks, go back and click Get API key"),
             "api_format": "gemini",
             "supports_image_input": true,
+            // Deep thinking request params per /think level, deep-merged into
+            // the request body (base < thinking_params < extraParams).
+            // thinkingLevel: "low"/"high"; thinkingBudget: 0 = off, -1 =
+            // dynamic (maximum) thinking.
+            "thinking_params": {
+                "low": { "generationConfig": { "thinkingConfig": { "thinkingLevel": "low" } } },
+                "high": { "generationConfig": { "thinkingConfig": { "thinkingLevel": "high" } } },
+                "max": { "generationConfig": { "thinkingConfig": { "thinkingBudget": -1 } } },
+                "disable": { "generationConfig": { "thinkingConfig": { "thinkingBudget": 0 } } },
+            },
         }),
         "gemini-3-flash": aiModelComponent.createObject(this, {
             "name": "Gemini 3 Flash",
@@ -246,6 +267,12 @@ Singleton {
             "key_get_description": Translation.tr("**Pricing**: free. Data used for training.\n\n**Instructions**: Log into Google account, allow AI Studio to create Google Cloud project or whatever it asks, go back and click Get API key"),
             "api_format": "gemini",
             "supports_image_input": true,
+            "thinking_params": {
+                "low": { "generationConfig": { "thinkingConfig": { "thinkingLevel": "low" } } },
+                "high": { "generationConfig": { "thinkingConfig": { "thinkingLevel": "high" } } },
+                "max": { "generationConfig": { "thinkingConfig": { "thinkingBudget": -1 } } },
+                "disable": { "generationConfig": { "thinkingConfig": { "thinkingBudget": 0 } } },
+            },
         }),
         "mistral-medium-3": aiModelComponent.createObject(this, {
             "name": "Mistral Medium 3",
@@ -272,6 +299,15 @@ Singleton {
             "key_get_link": "https://console.groq.com/keys",
             "key_get_description": Translation.tr("**Pricing**: free tier with rate limits.\n\n**Instructions**: Create a Groq account, go to console.groq.com/keys and click Create API Key"),
             "api_format": "openai",
+            // Groq's reasoning_effort caps at "high"; gpt-oss cannot disable
+            // thinking server-side, so "disable" sends the minimum effort and
+            // OpenAiApiStrategy drops the streamed reasoning deltas instead.
+            "thinking_params": {
+                "low": { "reasoning_effort": "low" },
+                "high": { "reasoning_effort": "high" },
+                "max": { "reasoning_effort": "high" },
+                "disable": { "reasoning_effort": "low" },
+            },
         }),
         "groq-gpt-oss-20b": aiModelComponent.createObject(this, {
             "name": "GPT-OSS 20B",
@@ -285,6 +321,14 @@ Singleton {
             "key_get_link": "https://console.groq.com/keys",
             "key_get_description": Translation.tr("**Pricing**: free tier with rate limits.\n\n**Instructions**: Create a Groq account, go to console.groq.com/keys and click Create API Key"),
             "api_format": "openai",
+            // Same Groq cap as the 120B variant: reasoning_effort tops out at
+            // "high"; thinking can't be disabled server-side on gpt-oss.
+            "thinking_params": {
+                "low": { "reasoning_effort": "low" },
+                "high": { "reasoning_effort": "high" },
+                "max": { "reasoning_effort": "high" },
+                "disable": { "reasoning_effort": "low" },
+            },
         }),
         "groq-qwen3.6-27b": aiModelComponent.createObject(this, {
             "name": "Qwen3.6 27B",
@@ -299,6 +343,14 @@ Singleton {
             "key_get_description": Translation.tr("**Pricing**: free tier with rate limits.\n\n**Instructions**: Create a Groq account, go to console.groq.com/keys and click Create API Key"),
             "api_format": "openai",
             "supports_image_input": true,
+            // Groq maps reasoning_effort "none" to fully disabled thinking on
+            // Qwen3 models.
+            "thinking_params": {
+                "low": { "reasoning_effort": "low" },
+                "high": { "reasoning_effort": "high" },
+                "max": { "reasoning_effort": "high" },
+                "disable": { "reasoning_effort": "none" },
+            },
         }),
     }
     property var modelList: Object.keys(root.models)
@@ -543,6 +595,20 @@ Singleton {
         root.addMessage(Translation.tr("Temperature set to %1").arg(value), root.interfaceRole);
     }
 
+    function setDeepThinking(level) {
+        level = (level ?? "").toLowerCase();
+        if (!root.deepThinkingLevels.includes(level)) {
+            root.addMessage(Translation.tr("Invalid thinking level. Supported:\n- %1").arg(root.deepThinkingLevels.join("\n- ")), root.interfaceRole);
+            return;
+        }
+        Persistent.states.ai.deepThinking = level;
+        root.addMessage(Translation.tr("Deep thinking set to %1").arg(level), root.interfaceRole);
+    }
+
+    function printDeepThinking() {
+        root.addMessage(Translation.tr("Deep thinking: %1").arg(root.deepThinking), root.interfaceRole);
+    }
+
     function setApiKey(key) {
         const model = models[currentModelId];
         if (!model.requires_key) {
@@ -665,6 +731,10 @@ fi
             
             requester.currentStrategy = root.currentApiStrategy;
             requester.currentStrategy.reset(); // Reset strategy state
+            // Deep thinking level: request param building (via
+            // AiModel.thinking_params) and parse-side reasoning filtering in
+            // the strategies both read this.
+            requester.currentStrategy.thinkingLevel = root.deepThinking;
             requester.receivedChars = 0; // Reset streaming budget
 
             /* Put API key in environment variable */
