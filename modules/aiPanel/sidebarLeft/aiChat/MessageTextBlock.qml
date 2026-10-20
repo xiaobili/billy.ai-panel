@@ -245,6 +245,25 @@ ColumnLayout {
 
     spacing: 0
 
+    // Lazy shared right-click context menu for the paragraphs: created on
+    // first open so a message doesn't pay for a Menu (~10 items) per
+    // paragraph, and declared via Component so the ColumnLayout never
+    // manages the popup as a layout child. The menu is re-pointed to the
+    // clicked paragraph by openAt() — see StyledTextContextMenu for why the
+    // opening position must come from the mouse event.
+    property var textContextMenu: null
+
+    function openTextContextMenu(target: Item, pos: point) {
+        if (root.textContextMenu === null)
+            root.textContextMenu = textContextMenuComponent.createObject(null);
+        root.textContextMenu.openAt(target, pos);
+    }
+
+    Component {
+        id: textContextMenuComponent
+        StyledTextContextMenu {}
+    }
+
     // Shared paragraph renderer. Stable paragraphs come from the Repeater
     // below; the growing tail paragraph (isTail) is instantiated once by
     // the Loader and updated in place via bindings — no per-tick teardown.
@@ -318,6 +337,11 @@ ColumnLayout {
         onLinkActivated: (link) => {
             Qt.openUrlExternally(link)
             GlobalStates.sidebarLeftOpen = false
+        }
+
+        TapHandler { // Right-click context menu at the mouse position
+            acceptedButtons: Qt.RightButton
+            onTapped: (eventPoint, button) => root.openTextContextMenu(textArea, eventPoint.position)
         }
 
         MouseArea { // Pointing hand for links

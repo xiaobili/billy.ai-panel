@@ -215,6 +215,20 @@ ColumnLayout {
                             }
                         }
 
+                        // Right-click context menu at the mouse position. The
+                        // right-button TapHandler keeps Qt from synthesizing the
+                        // automatic QContextMenuEvent, which would open at the
+                        // text cursor instead of the mouse (see StyledTextContextMenu).
+                        TapHandler {
+                            acceptedButtons: Qt.RightButton
+                            onTapped: (eventPoint, button) => codeContextMenu.openAt(codeTextArea, eventPoint.position)
+                        }
+
+                        StyledTextContextMenu {
+                            id: codeContextMenu
+                            editor: codeTextArea
+                        }
+
                         }
                 }
                 Loader {

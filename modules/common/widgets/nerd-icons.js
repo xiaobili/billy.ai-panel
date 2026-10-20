@@ -16,6 +16,13 @@ function nerdIcon(name) {
         case "visibility_off": return "\uF4C5";
         case "refresh": return "\uEAD2";
         case "content_copy": return "\uEBCC";
+        case "copy": return "\uDB80\uDD8F"; // md-content_copy (same icon family as the rest of the context menu)
+        case "content_cut": return "\uDB80\uDD90";
+        case "content_paste": return "\uDB80\uDD92";
+        case "undo": return "\uDB81\uDD4C";
+        case "redo": return "\uDB81\uDC4E";
+        case "delete": return "\uDB80\uDDB4";
+        case "select_all": return "\uDB81\uDC86";
         case "inventory": return "\uF05D";
         case "edit": return "\uEA73";
         case "code": return "\uF121";
