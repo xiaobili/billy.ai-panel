@@ -44,7 +44,7 @@ Item {
     property var allCommands: [
         {
             name: "attach",
-            description: Translation.tr("Attach a file. Only works with Gemini."),
+            description: Translation.tr("Attach an image (PNG/JPEG/WEBP/GIF) to the next message."),
             execute: args => {
                 Ai.attachFile(args.join(" ").trim());
             }

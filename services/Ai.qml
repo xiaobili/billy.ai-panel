@@ -922,6 +922,16 @@ fi
 
     function attachFile(filePath: string) {
         let trimmedPath = CF.FileUtils.trimFileProtocol(filePath);
+        // Strip wrapping quotes users habitually type around paths
+        // ("/path/file.png" or '/path/file.png') — they would otherwise
+        // become literal path characters and fail the existence check.
+        if (trimmedPath.length > 1) {
+            const first = trimmedPath[0];
+            const last = trimmedPath[trimmedPath.length - 1];
+            if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+                trimmedPath = trimmedPath.slice(1, -1);
+            }
+        }
         // Expand a leading ~ (bash never expands it once the path is quoted
         // inside the generated request script).
         if (trimmedPath === "~" || trimmedPath.startsWith("~/")) {

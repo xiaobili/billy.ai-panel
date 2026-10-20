@@ -20,7 +20,7 @@
   "Unknown Artist": "未知艺术家",
   "Web search": "网页搜索",
   "Load prompt from %1": "从 %1 加载提示词",
-  "Attach a file. Only works with Gemini.": "附加文件。仅支持 Gemini。",
+  "Attach an image (PNG/JPEG/WEBP/GIF) to the next message.": "附加图片（PNG/JPEG/WEBP/GIF）到下一条消息。",
   "Reboot": "重启",
   "API key:\n\n```txt\n%1\n```": "API 密钥：\n\n```txt\n%1\n```",
   "Pinned on startup": "启动时固定",

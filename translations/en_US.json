@@ -20,7 +20,7 @@
   "Unknown Artist": "Unknown Artist",
   "Web search": "Web search",
   "Load prompt from %1": "Load prompt from %1",
-  "Attach a file. Only works with Gemini.": "Attach a file. Only works with Gemini.",
+  "Attach an image (PNG/JPEG/WEBP/GIF) to the next message.": "Attach an image (PNG/JPEG/WEBP/GIF) to the next message.",
   "Reboot": "Reboot",
   "API key:\n\n```txt\n%1\n```": "API key:\n\n```txt\n%1\n```",
   "Pinned on startup": "Pinned on startup",

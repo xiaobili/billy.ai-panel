@@ -70,20 +70,32 @@ ApiStrategy {
     }
 
     function buildScriptFileSetup(filePath: string): string {
+        // Defense in depth: attachFile() strips the file:// scheme already,
+        // but a leaked prefix here makes the -f check below fail for an
+        // existing file ("file not found") — Gemini's setup trims for the
+        // same reason.
+        const trimmedFilePath = CF.FileUtils.trimFileProtocol(filePath);
         let content = "";
-        content += `IMAGE_PATH='${CF.StringUtils.shellSingleQuoteEscape(filePath)}'\n`;
-        content += 'if [ ! -f "$IMAGE_PATH" ] || [ ! -s "$IMAGE_PATH" ]; then\n';
-        content += '  printf \'{"error":{"message":"Attachment failed: file not found."}}\\n,\\n\'\n';
+        content += `IMAGE_PATH='${CF.StringUtils.shellSingleQuoteEscape(trimmedFilePath)}'\n`;
+        // The path is echoed into the error so a mismatch is debuggable from
+        // the chat itself. printf's %s keeps the path out of the format
+        // string (single quotes would suppress $IMAGE_PATH expansion).
+        content += 'if [ ! -f "$IMAGE_PATH" ]; then\n';
+        content += '  printf \'{"error":{"message":"Attachment failed: file not found: %s."}}\\n\' "$IMAGE_PATH"\n';
+        content += '  exit 0\n';
+        content += 'fi\n';
+        content += 'if [ ! -s "$IMAGE_PATH" ]; then\n';
+        content += '  printf \'{"error":{"message":"Attachment failed: file is empty: %s."}}\\n\' "$IMAGE_PATH"\n';
         content += '  exit 0\n';
         content += 'fi\n';
         content += 'IMAGE_SIZE=$(wc -c < "$IMAGE_PATH")\n';
         content += 'if [ "$IMAGE_SIZE" -gt 14000000 ]; then\n';
-        content += '  printf \'{"error":{"message":"Image too large (max 14 MB)."}}\\n,\\n\'\n';
+        content += '  printf \'{"error":{"message":"Image too large (max 14 MB)."}}\\n\'\n';
         content += '  exit 0\n';
         content += 'fi\n';
         content += 'MIME_TYPE=$(file -b --mime-type "$IMAGE_PATH")\n';
         content += 'case "$MIME_TYPE" in image/png|image/jpeg|image/webp|image/gif) ;; *)\n';
-        content += '  printf \'{"error":{"message":"Unsupported attachment type."}}\\n,\\n\'\n';
+        content += '  printf \'{"error":{"message":"Unsupported attachment type. Only PNG/JPEG/WEBP/GIF images are supported."}}\\n\'\n';
         content += '  exit 0\n';
         content += ';; esac\n';
         content += 'IMAGE_DATA_URL="data:${MIME_TYPE};base64,$(base64 -w0 "$IMAGE_PATH")"\n';
